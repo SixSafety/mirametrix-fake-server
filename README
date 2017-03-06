@@ -1,4 +1,4 @@
-MAc Build
-g++ -std=c++11 -I $BOOST_ROOT -o mmServer mmServer.cpp $BOOST_ROOT/stage/lib/libboost_*.a
+Mac Build
+g++ -std=c++11 -I $BOOST_INCLUDES -o mmServer mmServer.cpp $BOOST_LIBS/libboost_*.a
 Windows Build
 g++ -std=c++11 -I $BOOST_ROOT -o mmServer mmServer.cpp $BOOST_ROOT/stage/lib/libboost_*.a -lws2_32
