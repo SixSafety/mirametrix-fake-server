@@ -4,131 +4,90 @@
 
 #include <iostream>
 #include <string>
+#include <fstream>
 #include <sstream>
 #include <time.h>
 #include <boost/asio.hpp>
 
 using boost::asio::ip::tcp;
 
-static int count = 0;
-static float timestamp = 0.0;
-#define MISSING 0
-#define OPEN 1
-#define CLOSED 2
-static int mode = MISSING;
-
-//Simple faked reading of the no eyes detected condition (with count)
-std::string fake_missing()
+int main(int argc, char* argv[])
 {
-  std::ostringstream reading;
+  if(argc != 2)
+    exit(1);
+  std::string logFile(argv[1]);
+  std::cout << "Log File: " << logFile << std::endl;
+  std::ifstream logDataFile(logFile);
 
-  reading << "<REC CNT=\""
-          << ++count
-          << "\" TIME=\""
-          << timestamp
-          << "\">\r\n"
-          << "<Attachment guid=\"ACBFE1C2-EF41-4B9F-B019-A3E2A16A2CD6\" LEYE_FATIGUE=\"-1.000000\" LEYE_FCONF=\"-2.000000\" REYE_FATIGUE=\"-1.000000\" REYE_FCONF=\"-2.000000\" />\r\n"
-          << "</REC>\r\n";
-  return (reading.str());
-}
-
-//Simple faked reading of the no eyes detected condition (with count)
-std::string fake_closed()
-{
-  std::ostringstream reading;
-
-  reading << "<REC CNT=\""
-          << ++count
-          << "\" TIME=\""
-          << timestamp
-          << "\">\r\n"
-          << "<Attachment guid=\"ACBFE1C2-EF41-4B9F-B019-A3E2A16A2CD6\" LEYE_FATIGUE=\"0.070000\" LEYE_FCONF=\"1.000000\" REYE_FATIGUE=\"0.080000\" REYE_FCONF=\"1.000000\" />\r\n"
-          << "</REC>\r\n";
-  return (reading.str());
-}
-
-//Simple faked reading of the no eyes detected condition (with count)
-std::string fake_open()
-{
-  std::ostringstream reading;
-
-  reading << "<REC CNT=\""
-          << ++count
-          << "\" TIME=\""
-          << timestamp
-          << "\">\r\n"
-          << "<Attachment guid=\"ACBFE1C2-EF41-4B9F-B019-A3E2A16A2CD6\" LEYE_FATIGUE=\"0.600000\" LEYE_FCONF=\"1.000000\" REYE_FATIGUE=\"0.500000\" REYE_FCONF=\"1.000000\" />\r\n"
-          << "</REC>\r\n";
-  return (reading.str());
-}
-
-int main()
-{
   try
   {
     boost::asio::io_service io_service;
     boost::system::error_code ec;
-    tcp::iostream stream;
+    tcp::iostream tcpSocketStream;
 
-    tcp::endpoint endpoint(tcp::v4(), 4242);
-    tcp::acceptor acceptor(io_service, endpoint);
+    tcp::endpoint tcpEndpoint(tcp::v4(), 4242);
+    tcp::acceptor tcpAcceptor(io_service, tcpEndpoint);
  
-    acceptor.accept(*stream.rdbuf(), ec);
+    tcpAcceptor.accept(*tcpSocketStream.rdbuf(), ec);
     if(ec)
-    {
       std::cerr << ec.message() << std::endl;
-    }
     
     for (;;)
     {
-      int lastmode;
+      std::string inputLine;
+      std::string strTimeStamp;
+      double fTimeStamp;
+      static double fLastTimeStamp = 0.0f;
+      double fElapsedTime;
+      int i, flag;
+      size_t firstQuote, lastQuote, szTime;
       struct timespec foo;
-      foo.tv_sec = 0;
-      foo.tv_nsec = 16666667L; //60Hz in nanoseconds
-      nanosleep(&foo,&foo);
 
-      if( (count%10000) < 1500 )
-        mode = OPEN;
-      else if( (count%10000 < 1510) )
-        mode = CLOSED;
-      else if( (count%10000 < 2510) )
-        mode = OPEN;
-      else if( (count%10000 < 2538) )
-        mode = CLOSED;
-      else if( (count%10000 < 3030) )
-        mode = OPEN;
-      else if( (count%10000 < 3060) )
-        mode = CLOSED;
-      else if( (count%10000 < 3190) )
-        mode = OPEN;
-      else
-        mode = MISSING;
+      if(!logDataFile.good())
+        exit(1);
 
-      if(mode != lastmode)
+      std::getline(logDataFile,inputLine);
+      if( (firstQuote = inputLine.find("TIME=")) != std::string::npos)
       {
-          std::cout << "Timestamp " << timestamp  << std::endl;
-        if(mode == MISSING)
-          std::cout << "Missing" << std::endl;
-        else if(mode == OPEN)
-          std::cout << "Open" << std::endl;
-        else if(mode == CLOSED)
-          std::cout << "Closed" << std::endl;
+        firstQuote += 6;
+        lastQuote = inputLine.rfind('"');
+        szTime = lastQuote - firstQuote;
+        strTimeStamp = inputLine.substr(firstQuote,szTime);
+        //std::cout << "FirstQuote:" << firstQuote << ":LastQuote:" << lastQuote << ":" << std::endl;
+        fTimeStamp = stof(strTimeStamp);
+        if(fTimeStamp != 0.0f)
+        {
+          fElapsedTime = fTimeStamp - fLastTimeStamp;
+          long lElapsed = fElapsedTime * 833333333LL;
+          //std::cout << "Now:" << fTimeStamp << ":Then:" << fLastTimeStamp << ":Elapsed:" << fElapsedTime
+                    //<< ":Nano:" << lElapsed << std::endl;
+          fLastTimeStamp = fTimeStamp;
+
+          foo.tv_sec = 0;
+          foo.tv_nsec = lElapsed;
+
+          nanosleep(&foo,&foo);
+        }
       }
-      if(count > 4000)
-        sleep(20);
-
-      lastmode = mode;
-      timestamp += 20;
-      if(mode == MISSING)
-        stream << fake_missing();
-      else if(mode == OPEN)
-        stream << fake_open();
-      else if(mode == CLOSED)
-        stream << fake_closed();
-
-      if(!stream)
+      i = fLastTimeStamp;
+      if(!(i%60))
       {
-        std::cerr << stream.error().message() << std::endl;
+        if(flag == 0)
+        {
+          std::chrono::time_point<std::chrono::system_clock> nowtime = std::chrono::system_clock::now();
+          std::time_t current_time = std::chrono::system_clock::to_time_t(nowtime);
+          std::cout << "Time: " << std::ctime(&current_time) << "Last Stamp: " << fLastTimeStamp << std::endl;
+          flag = 1;
+        }
+      }
+      else
+        flag = 0;
+
+      tcpSocketStream << inputLine << std::endl;
+
+      if(!tcpSocketStream)
+      {
+        std::cerr << tcpSocketStream.error().message() << std::endl;
         break;
       }
     }
@@ -137,5 +96,6 @@ int main()
   {
     std::cerr << e.what() << std::endl;
   }
+  logDataFile.close();
   return 0;
 }
